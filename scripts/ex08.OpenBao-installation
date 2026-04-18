@@ -1,0 +1,127 @@
+2026-03-22: OPENBAO
+
+
+ATTENTION:
+- this setup assumes OpenBao and postgres are on the same host!
+- getting an error message when attempting to connect postgres to openbao even though vault is unsealed
+
+    db01=# select * from pg_tde_add_database_key_provider_vault_v2 (
+        'percona01',
+        's.F2aM8TqarGfHHSp3I7COWElw',
+        'http://127.0.0.1:8200',
+        'percona',
+        NULL
+    );
+
+  could not open file "percona" for "vault_token": No such file or directory
+
+====================================================================
+INSTALLATION
+
+# as root
+wget https://github.com/openbao/openbao/releases/download/v2.3.0-beta20250528/bao-hsm_2.3.0-beta20250528_linux_amd64.deb
+dpkg -i ./bao_2.2.1_linux_amd64.deb
+
+
+
+
+====================================================================
+CONFIGURATION
+
+cp /etc/openbao/openbao.hcl /etc/openbao/openbao.hcl_DEPRECATED
+
+echo "
+ui = true
+
+storage \"file\" {
+  path = \"/opt/openbao/data\"
+}
+
+# HTTP listener
+listener \"tcp\" {
+  address = \"0.0.0.0:8200\"
+  tls_disable = 1
+}
+" > /etc/openbao/openbao.hcl
+
+chown openbao:openbao /etc/openbao/openbao.hcl
+
+
+====================================================================
+STARTUP & STATUS
+
+systemctl start openbao
+
+systemctl status openbao
+
+
+=================================================
+===================
+INITIALIZATION
+
+export VAULT_ADDR="http://127.0.0.1:8200"
+bao operator init -key-shares=1 -key-threshold=1 | grep -E 'Unseal|Token' > bao.ini
+
+
+
+====================================================================
+CREATE MOUNT POINT
+
+# Recall: bao.ini
+
+UNSEAL_KEY=$(cat bao.ini | grep Unseal | cut -d ':' -f 2)
+TOKEN=$(cat bao.ini | grep Token | cut -d ':' -f 2)
+
+export VAULT_ADDR="http://127.0.0.1:8200" \
+       VAULT_TOKEN=$TOKEN
+
+bao operator unseal $UNSEAL_KEY
+bao secrets enable -path=percona kv
+bao secrets list
+
+====================================================================
+CREATE PROVIDER
+
+
+export VAULT_TOKEN=$(cat bao.ini | grep Token | cut -d ':' -f 2)
+
+su - postgres <<_eof_
+    dropdb --if-exists db01
+    createdb db01 --template=tde_template
+
+    psql db01 <<_eof1_
+       \set ON ERROR STOP
+
+        select * from pg_tde_add_database_key_provider_vault_v2 (
+            'percona01',
+            '$VAULT_TOKEN',
+            'http://127.0.0.1:8200',
+            'percona',
+            NULL
+        );
+
+        select * from pg_tde_set_key_using_database_key_provider (
+            'key01',
+            'percona01',
+            true
+        );
+
+        select * from pg_tde_list_all_database_key_providers();
+        select * from pg_tde_key_info();
+_eof1_
+_eof_
+
+
+====================================================================
+BAO MISC: other useful commands, after a provider has been assigned in the database
+
+
+# returns list of keys
+bao kv list -mount=percona
+
+# returns a specific key value, includes metadata
+bao kv get -mount=percona <keys>
+
+#   EX: returns value of key "key01"
+bao kv get -mount=percona key01
+

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+psql db03 <<_eof_
+-- recall: there are two providers
+select * from pg_tde_list_all_database_key_providers();
+
+-- fails: provider is active
+select * from pg_tde_delete_database_key_provider('provider_db03a');
+
+-- works: this provider is inactive
+select * from pg_tde_delete_database_key_provider('provider_db03');
+
+_eof_

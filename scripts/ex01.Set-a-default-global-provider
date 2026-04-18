@@ -1,0 +1,60 @@
+#!/bin/bash
+
+set -e
+
+psql -1 db01 <<_eof_
+\set ON_ERROR_STOP on
+
+    select * from pg_tde_add_global_key_provider_file (
+        'provider_global',
+        '/var/lib/postgresql/key_global.dat'
+    );
+
+    select * from pg_tde_create_key_using_global_key_provider(
+        'key_global',
+        'provider_global'
+    );
+
+    select * from pg_tde_set_default_key_using_global_key_provider (
+        'key_global',
+        'provider_global'
+    );
+
+    -- validation
+    select * from pg_tde_list_all_global_key_providers();
+    select * from pg_tde_default_key_info();
+_eof_
+
+
+psql -1 db01 <<_eof_
+\set ON_ERROR_STOP on
+    create table t1 (
+        id serial primary key,
+        comments text default 'hello world',
+        t_stamp timestamptz default now()
+    ) using tde_heap;
+
+    select * from pg_tde_is_encrypted('t1');
+
+    insert into t1 values (default,default,default);
+    table t1;
+_eof_
+
+createdb db02 --template=tde_template
+
+psql -1 db02 <<_eof_
+    -- validation
+    select * from pg_tde_list_all_global_key_providers();
+    select * from pg_tde_default_key_info();
+
+    create table t1 (
+        id serial primary key,
+        comments text default 'hello world',
+        t_stamp timestamptz default now()
+    ) using tde_heap;
+
+    select * from pg_tde_is_encrypted('t1');
+
+    insert into t1 values (default,default,default);
+    table t1;
+_eof_

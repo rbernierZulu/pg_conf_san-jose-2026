@@ -1,0 +1,27 @@
+#!/bin/bash
+
+set -e
+
+psql -1 db03 <<_eof_
+\set ON_ERROR_STOP on
+
+select * from pg_tde_list_all_database_key_providers();
+select * from pg_tde_key_info();
+
+select * from pg_tde_add_database_key_provider_file(
+        'provider_db03a',
+        '/var/lib/postgresql/key_db03a.dat'
+    );
+
+select * from pg_tde_create_key_using_database_key_provider (
+    'key_db03a',
+    'provider_db03a'
+);
+
+select * from pg_tde_set_key_using_database_key_provider(
+    'key_db03a',
+    'provider_db03a'
+);
+
+select * from pg_tde_key_info();
+_eof_

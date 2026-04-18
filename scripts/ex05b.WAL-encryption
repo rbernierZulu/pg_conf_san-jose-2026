@@ -1,0 +1,19 @@
+#!/bin/bash
+
+set -e
+
+##############################################
+# restart the server
+# systemctl restart postgresql@17-main
+##############################################
+
+psql db01 -c "insert into t1 select generate_series(101,10E6);"
+
+psql db01 -c "select name,setting from pg_settings where name~'^pg_tde';"
+
+exit
+
+##############################################
+# tail WAL, hint begin with lowest number
+/usr/lib/postgresql/17/bin/pg_waldump -f -p /var/lib/postgresql/17/main/pg_wal/ <wal log>
+##############################################

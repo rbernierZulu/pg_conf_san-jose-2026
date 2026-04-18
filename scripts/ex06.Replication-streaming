@@ -1,0 +1,80 @@
+EXAMPLE: Streaming Replication
+
+=================
+
+
+PRIMARY (port:5433, password:postgres)
+
+# shutdown existing cluster, prevents confusion
+systemctl stop postgresql@17-main
+
+# Execute the following either as root or ubuntu
+#   initialize the postgres cluster, preload pg_tde
+#
+sudo su - postgres <<_eof_
+    pg_createcluster 17 pg1_primary -p 5433 -- --pwfile=<(echo 'postgres')
+    pg_conftool 17 pg1_primary postgresql.auto.conf set listen_addresses '*'
+    pg_conftool 17 pg1_primary postgresql.auto.conf set wal_level 'logical'
+    pg_conftool 17 pg1_primary postgresql.auto.conf set shared_preload_libraries 'pg_tde'
+_eof_
+
+systemctl start postgresql@17-pg1_primary
+
+
+sudo su - postgres <<_eof_
+    rm -f key_streaming.file
+    export PGPORT=5433
+    createdb db01
+
+# install default global provider key
+    psql -1 db01 <<_eof1_
+        create extension pg_tde;
+        select pg_tde_add_global_key_provider_file ('provider_global_streaming','/var/lib/postgresql/key_streaming.file');
+        select pg_tde_create_key_using_global_key_provider('key_global','provider_global_streaming');
+        select pg_tde_set_default_key_using_global_key_provider ('key_global','provider_global_streaming');
+_eof1_
+_eof_
+
+
+=================
+REPLICA, STREAMING (port:5434, password:postgres)
+
+sudo su - postgres <<_eof_
+    pg_createcluster 17 pg2_replica_streaming -p 5434
+    rm -rf /var/lib/postgresql/17/pg2_replica_streaming/*
+
+    # keeping things simple, no slots are used
+    /usr/bin/pg_basebackup  -d "host=localhost port=5433 user=postgres password=postgres" \
+                        -D /var/lib/postgresql/17/pg2_replica_streaming \
+                        --wal-method=stream \
+                        -c fast \
+                        -R -P -v
+_eof_
+
+
+systemctl start postgresql@17-pg2_replica_streaming
+
+=================
+pg_lsclusters
+
+root@pg1-pgtde:~# pg_lsclusters
+Ver Cluster               Port Status          Owner    Data directory                               Log file
+17  main                  5432 down            postgres /var/lib/postgresql/17/main                  /var/log/postgresql/postgresql-17-main.log
+17  pg1_primary           5433 online          postgres /var/lib/postgresql/17/pg1_primary           /var/log/postgresql/postgresql-17-pg1_primary.log
+17  pg2_replica_streaming 5434 online,recovery postgres /var/lib/postgresql/17/pg2_replica_streaming /var/log/postgresql/postgresql-17-pg2_replica_streaming.log
+
+=================
+VALIDATE
+
+# session: PRIMARY
+sudo su - postgres <<_eof_
+    export PGPORT=5433
+    psql db01 -c 'select * into t1 from generate_series(1,10) as c1; alter table t1 set access method tde_heap';
+_eof_
+
+# session: REPLICA-STREAMING
+sudo su - postgres <<_eof_
+    export PGPORT=5434
+    psql db01 -c "select * from t1;select * from pg_tde_is_encrypted('t1');"
+_eof_
+

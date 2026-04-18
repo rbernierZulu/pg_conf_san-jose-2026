@@ -1,0 +1,33 @@
+#!/bin/bash
+
+set -e
+
+createdb db03 --template=tde_template
+
+psql -1 db03 <<_eof_
+\set ON_ERROR_STOP on
+    select * from pg_tde_add_database_key_provider_file(
+        'provider_db03',
+        '/var/lib/postgresql/key_db03.dat'
+    );
+
+    select * from pg_tde_create_key_using_database_key_provider(
+        'key_db03',
+        'provider_db03'
+    );
+
+    -- validation
+    select * from pg_tde_list_all_global_key_providers();
+    select * from pg_tde_list_all_database_key_providers();
+    select * from pg_tde_key_info();
+
+    create table t1 (
+        id serial primary key,
+        comments text default 'hello world',
+        t_stamp timestamptz default now()
+    ) using tde_heap;
+
+    select * from pg_tde_is_encrypted('t1');
+_eof_
+
+

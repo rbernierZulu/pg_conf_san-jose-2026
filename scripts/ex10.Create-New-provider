@@ -1,0 +1,68 @@
+UPDATE PROVIDER
+
+
+====================================================================
+
+# ensure tls.cert and .vault_token are present in current directory
+
+export BAO_CACERT=tls.crt \
+       VAULT_ADDR="https://127.0.0.1:8200" \
+       VAULT_TOKEN=$(cat .vault_token)
+
+bao kv list -mount=percona
+
+====================================================================
+-- add the new provider
+select * from pg_tde_add_database_key_provider_vault_v2 (
+    'percona02',
+    'https://127.0.0.1:8200',
+    'percona',
+    '/var/lib/postgresql/.vault_token',
+    '/var/lib/postgresql/tls.crt'
+);
+
+select * from pg_tde_create_key_using_database_key_provider(
+    'key02',
+    'percona02'
+);
+
+select pg_tde_set_key_using_database_key_provider (
+    'key02',
+    'percona02'
+);
+
+
+
+
+
+====================================================================
+RESTART POSTGRESQL
+
+
+systemctl restart postgresql@17-main
+
+
+====================================================================
+Validate System
+
+/* RECALL TABLE T1
+                                      Table "public.t1"
+  Column  |           Type           | Collation | Nullable |            Default
+----------+--------------------------+-----------+----------+--------------------------------
+ id       | integer                  |           | not null | nextval('t1_id_seq'::regclass)
+ comments | text                     |           |          | 'hello world, t1'::text
+ t_stamp  | timestamp with time zone |           |          | now()
+Indexes:
+    "t1_pkey" PRIMARY KEY, btree (id)
+
+*/
+
+insert into t1 values (default, default, default);
+table t1;
+
+select * from pg_tde_list_all_database_key_providers();
+select * from pg_tde_key_info();
+
+
+====================================================================
+

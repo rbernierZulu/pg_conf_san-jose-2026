@@ -1,0 +1,41 @@
+#!/bin/bash
+
+set -e
+
+psql db01 <<_eof_
+\set ON_ERROR_STOP on
+    --
+    -- recall provider: provider_global
+    --
+    select * from pg_tde_list_all_global_key_providers();
+
+    select * from pg_tde_create_key_using_global_key_provider (
+        'key-wal',
+        'provider_global'
+    );
+
+    select * from pg_tde_set_server_key_using_global_key_provider (
+        'key-wal',
+        'provider_global'
+    );
+
+    select name,setting from pg_settings where name~'^pg_tde';
+    alter system set pg_tde.wal_encrypt = on;
+_eof_
+
+exit
+##############################################
+# restart the server
+# systemctl restart postgresql@17-main
+##############################################
+
+
+
+psql db01 -c "insert into t1 select generate_series(101,10E6);"
+
+
+
+##############################################
+# tail WAL, hint begin with lowest number
+/usr/lib/postgresql/17/bin/pg_waldump -f -p /var/lib/postgresql/17/main/pg_wal/ <wal log>
+##############################################

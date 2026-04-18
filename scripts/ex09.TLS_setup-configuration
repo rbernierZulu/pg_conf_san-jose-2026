@@ -1,0 +1,110 @@
+TLS SETUP & CONFIGURATION
+
+
+====================================================================
+# vim /etc/openbao/openbao.hcl
+
+ui = true
+
+storage "file" {
+  path = "/opt/openbao/data"
+}
+
+# HTTP listener
+listener "tcp" {
+  address = "0.0.0.0:8200"
+  tls_cert_file = "/opt/openbao/tls/server.crt"
+  tls_key_file  = "/opt/openbao/tls/server.key"
+}
+
+
+====================================================================
+# vim /opt/openbao/tls/openssl.cnf
+
+
+[req]
+default_bits=2048
+prompt = no
+default_md = sha256
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+x509_extensions = v3_ca
+
+[req_distinguished_name]
+C = US
+ST = Washington
+L = Seattle
+O = Percona
+CN = pg1
+
+[v3_ca]
+basicConstraints = critical,CA:true
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+IP.1 = 127.0.0.1
+IP.2 = 10.108.134.140
+
+
+
+========================================================================================================================================
+CERTIFICATE REQUEST OUTPUT
+
+openssl req -in /opt/openbao/tls/server.csr -text -noout | less
+
+
+    Attributes:
+        Requested Extensions:
+            X509v3 Subject Alternative Name:
+                IP Address:127.0.0.1
+
+
+========================================================================================================================================
+
+cd /opt/openbao/tls/
+
+# generate new key
+openssl genrsa -out server.key 4096
+
+# create CSR
+openssl req -new -key server.key -out server.csr -config openssl.cnf
+
+# validate rootCA
+openssl x509 -in /opt/openbao/tls/tls.crt -text -noout | less
+
+    X509v3 extensions:
+        X509v3 Subject Key Identifier:
+            35:31:2F:CA:B8:50:9C:8A:13:13:0A:A7:34:24:20:17:58:5E:E4:E4
+        X509v3 Authority Key Identifier:
+            35:31:2F:CA:B8:50:9C:8A:13:13:0A:A7:34:24:20:17:58:5E:E4:E4
+        X509v3 Basic Constraints: critical
+            CA:TRUE
+
+
+# sign CSR
+openssl x509 -req -in server.csr \
+        -CA tls.crt -CAkey tls.key \
+        -out server.crt -days 500 -sha256 \
+        -extfile openssl.cnf -extensions v3_req
+
+# ensure all certs, keys owned by openbao
+chown openbao:openbao *
+
+# restart server
+systemctl restart openbao
+
+# Recall: bao.ini
+
+cd $HOME
+export UNSEAL_KEY=$(cat bao.ini | grep Unseal | cut -d ':' -f 2)
+       TOKEN=$(cat bao.ini | grep Token | cut -d ':' -f 2) \
+       VAULT_ADDR="https://127.0.0.1:8200"
+
+echo "$TOKEN" > $HOME/.vault_token
+
+bao operator unseal -ca-cert /opt/openbao/tls/tls.crt $UNSEAL_KEY
+
+
+========================================================================================================================================
